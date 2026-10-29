@@ -1,0 +1,211 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SRT Resync Tool</title>
+    <style>
+        :root {
+            --bg: #121212; --surface: #1e1e1e; --border: #333;
+            --text: #e0e0e0; --primary: #3b82f6; --primary-hover: #2563eb;
+            --danger: #ef4444; --success: #10b981;
+        }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            background-color: var(--bg); color: var(--text);
+            margin: 0; padding: 20px;
+        }
+        .container { max-width: 1200px; margin: 0 auto; }
+        .header-panel {
+            background: var(--surface); padding: 20px; border-radius: 8px;
+            margin-bottom: 20px; border: 1px solid var(--border);
+            display: flex; gap: 20px; flex-wrap: wrap; align-items: flex-end;
+            position: sticky; top: 0; z-index: 100; box-shadow: 0 4px 6px rgba(0,0,0,0.3);
+        }
+        .file-input { display: flex; flex-direction: column; gap: 8px; flex: 1; }
+        .file-input input {
+            background: var(--bg); color: var(--text);
+            border: 1px solid var(--border); padding: 8px; border-radius: 4px;
+        }
+        button {
+            background: var(--primary); color: white; border: none;
+            padding: 10px 20px; border-radius: 4px; cursor: pointer;
+            font-weight: bold; transition: background 0.2s;
+        }
+        button:hover { background: var(--primary-hover); }
+        button:disabled { background: #555; cursor: not-allowed; }
+        #exportBtn { background: var(--success); }
+        #exportBtn:hover { background: #059669; }
+        
+        .grid-header, .grid-row {
+            display: grid; grid-template-columns: 80px 150px 1fr 1fr 100px; gap: 10px;
+            padding: 12px; border-bottom: 1px solid var(--border);
+            align-items: center;
+        }
+        .grid-header { font-weight: bold; background: var(--surface); border-radius: 8px 8px 0 0; }
+        .grid-row:hover { background: #1a1a1a; }
+        
+        .eng-text { color: #9ca3af; font-size: 0.95em; }
+        textarea {
+            width: 100%; background: var(--bg); color: var(--text);
+            border: 1px solid var(--border); padding: 8px; border-radius: 4px;
+            resize: vertical; min-height: 40px; font-family: inherit;
+        }
+        textarea:focus { outline: 1px solid var(--primary); }
+        
+        .controls { display: flex; gap: 5px; }
+        .icon-btn {
+            background: var(--surface); border: 1px solid var(--border);
+            padding: 6px 10px; border-radius: 4px; cursor: pointer; font-size: 16px;
+        }
+        .icon-btn:hover { background: #333; }
+        
+        #editor { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; margin-bottom: 50px; }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <div class="header-panel">
+        <div class="file-input">
+            <label>1. Reference SRT (English - Synced)</label>
+            <input type="file" id="refFile" accept=".srt">
+        </div>
+        <div class="file-input">
+            <label>2. Target SRT (Malayalam - To be synced)</label>
+            <input type="file" id="targetFile" accept=".srt">
+        </div>
+        <button id="loadBtn">Load & Compare</button>
+        <button id="exportBtn" disabled>Export Synced SRT</button>
+    </div>
+
+    <div id="editor" style="display: none;">
+        <div class="grid-header">
+            <div>Index</div>
+            <div>Timestamp</div>
+            <div>Reference (Eng)</div>
+            <div>Target (Mal)</div>
+            <div>Shift Rest</div>
+        </div>
+        <div id="rowsContainer"></div>
+    </div>
+</div>
+
+<script>
+    let refSubs = [];
+    let targetSubs = []; // Array of just the text dialogues
+
+    // Very basic SRT parser
+    function parseSRT(data) {
+        // Normalize line endings and split by double blank lines
+        const blocks = data.replace(/\r\n/g, '\n').trim().split(/\n\s*\n/);
+        return blocks.map(block => {
+            const lines = block.split('\n');
+            const index = lines[0];
+            const time = lines[1];
+            const text = lines.slice(2).join('\n');
+            return { index, time, text };
+        }).filter(b => b.time && b.time.includes('-->')); // Drop invalid blocks
+    }
+
+    document.getElementById('loadBtn').addEventListener('click', async () => {
+        const refFile = document.getElementById('refFile').files[0];
+        const targetFile = document.getElementById('targetFile').files[0];
+
+        if (!refFile || !targetFile) {
+            alert("Please select both SRT files first.");
+            return;
+        }
+
+        const refText = await refFile.text();
+        const targetText = await targetFile.text();
+
+        refSubs = parseSRT(refText);
+        // Extract just the text from the target file to make shifting it as an array easier
+        targetSubs = parseSRT(targetText).map(sub => sub.text);
+
+        renderTable();
+        document.getElementById('editor').style.display = 'block';
+        document.getElementById('exportBtn').disabled = false;
+    });
+
+    function shiftDown(index) {
+        // Insert a blank string at this index, pushing everything else down
+        targetSubs.splice(index, 0, "");
+        renderTable();
+    }
+
+    function shiftUp(index) {
+        if (index === 0) return; // Can't pull up the first row
+        // Delete the cell above it, pulling this one and everything below it up
+        targetSubs.splice(index - 1, 1);
+        renderTable();
+    }
+
+    function updateTargetText(index, value) {
+        targetSubs[index] = value;
+    }
+
+    function renderTable() {
+        const container = document.getElementById('rowsContainer');
+        container.innerHTML = '';
+        
+        // Render until the end of whichever array is longer
+        const maxRows = Math.max(refSubs.length, targetSubs.length);
+
+        for (let i = 0; i < maxRows; i++) {
+            const ref = refSubs[i] || { index: '-', time: '---', text: '' };
+            const tgtText = targetSubs[i] || '';
+
+            const row = document.createElement('div');
+            row.className = 'grid-row';
+            
+            row.innerHTML = `
+                <div>${i + 1}</div>
+                <div style="font-size: 0.85em; color: #aaa;">${ref.time}</div>
+                <div class="eng-text">${ref.text.replace(/\n/g, '<br>')}</div>
+                <div>
+                    <textarea oninput="updateTargetText(${i}, this.value)">${tgtText}</textarea>
+                </div>
+                <div class="controls">
+                    <button class="icon-btn" title="Pull Up (Deletes row above)" onclick="shiftUp(${i})">⬆️</button>
+                    <button class="icon-btn" title="Push Down (Inserts blank here)" onclick="shiftDown(${i})">⬇️</button>
+                </div>
+            `;
+            container.appendChild(row);
+        }
+    }
+
+    document.getElementById('exportBtn').addEventListener('click', () => {
+        let outputSRT = '';
+        let newIndex = 1;
+
+        const maxRows = Math.max(refSubs.length, targetSubs.length);
+
+        for (let i = 0; i < maxRows; i++) {
+            const ref = refSubs[i];
+            const mal = targetSubs[i] ? targetSubs[i].trim() : '';
+
+            // Same logic as your Python script: dropna(subset=['English Time Stamp', 'Malayalam Dialogue'])
+            // Only export if we have a valid reference timestamp AND non-empty Malayalam text
+            if (ref && ref.time !== '---' && mal) {
+                outputSRT += `${newIndex}\n${ref.time}\n${mal}\n\n`;
+                newIndex++;
+            }
+        }
+
+        // Create a downloadable Blob
+        const blob = new Blob([outputSRT], { type: 'text/plain' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = 'synced_malayalam.srt';
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+    });
+</script>
+
+</body>
+</html>
