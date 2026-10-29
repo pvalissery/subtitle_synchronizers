@@ -70,25 +70,25 @@
 
 <div class="top-panel">
     <div class="file-input">
-        <label>1. Reference (English - Correctly Synced)</label>
+        <label>1. Reference (Correctly Synced)</label>
         <input type="file" id="refFile" accept=".srt">
     </div>
     <div class="file-input">
-        <label>2. Target (Malayalam - Needs Syncing)</label>
+        <label>2. Target (Unsynchronized)</label>
         <input type="file" id="targetFile" accept=".srt">
     </div>
     <button id="loadBtn">Load Files</button>
-    <button id="exportBtn" disabled>Export Malayalam SRT</button>
+    <button id="exportBtn" disabled>Export Synced SRT</button>
 </div>
 
 <div class="sync-panel">
     <div class="sync-info">
         <div>
-            <label>Target Time (English)</label>
+            <label>Target Time (Reference)</label>
             <span id="lblTargetTime">--:--:--,---</span>
         </div>
         <div>
-            <label>Current Time (Malayalam)</label>
+            <label>Current Time (Unsynchronized)</label>
             <span id="lblCurrentTime">--:--:--,---</span>
         </div>
         <div>
@@ -101,11 +101,11 @@
 
 <div class="editor-container">
     <div class="col">
-        <div class="col-header">English Reference (Click to set Target Time)</div>
+        <div class="col-header">Reference File (Click to set Target Time)</div>
         <div class="scroll-area" id="refList"></div>
     </div>
     <div class="col">
-        <div class="col-header">Malayalam Target (Click to set Current Time)</div>
+        <div class="col-header">Unsynchronized File (Click to set Current Time)</div>
         <div class="scroll-area" id="tgtList"></div>
     </div>
 </div>
@@ -245,7 +245,7 @@
 
         const offsetMs = refSubs[selRefIdx].startMs - tgtSubs[selTgtIdx].startMs;
 
-        // Apply offset to selected Malayalam subtitle and EVERY subtitle after it
+        // Apply offset to selected target subtitle and EVERY subtitle after it
         for (let i = selTgtIdx; i < tgtSubs.length; i++) {
             tgtSubs[i].startMs += offsetMs;
             tgtSubs[i].endMs += offsetMs;
@@ -272,7 +272,7 @@
         const url = URL.createObjectURL(blob);
         const a = document.createElement('a');
         a.href = url;
-        a.download = 'synced_malayalam.srt';
+        a.download = 'synced_subtitles.srt';
         document.body.appendChild(a);
         a.click();
         document.body.removeChild(a);
