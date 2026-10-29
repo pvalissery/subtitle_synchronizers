@@ -5,7 +5,7 @@ I watch a lot of foreign films, and half the time, the only subtitle I can find 
 
 Adjusting the track synchronization in VLC works fine until the release has a different ad-break cut, and then everything is screwed up again. I got tired of guessing millisecond delays in Notepad, so I built a web tool to fix it visually.
 
-##How it works:
+##How it works
 You just drop in two files: a Reference SRT (a random sub in any language that is already perfectly synced to your video file) and your Target SRT (the unsynced one).
 
 Scroll to a line you recognize. (Use google translate if you dont)
