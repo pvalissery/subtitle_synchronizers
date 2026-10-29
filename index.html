@@ -3,199 +3,272 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>SRT Resync Tool</title>
+    <title>SRT Timestamp Auto-Sync</title>
     <style>
         :root {
             --bg: #121212; --surface: #1e1e1e; --border: #333;
             --text: #e0e0e0; --primary: #3b82f6; --primary-hover: #2563eb;
-            --danger: #ef4444; --success: #10b981;
+            --danger: #ef4444; --success: #10b981; --highlight: #374151;
+            --selected-ref: #065f46; --selected-tgt: #7f1d1d;
         }
         body {
             font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
             background-color: var(--bg); color: var(--text);
-            margin: 0; padding: 20px;
+            margin: 0; padding: 0; height: 100vh; display: flex; flex-direction: column;
         }
-        .container { max-width: 1200px; margin: 0 auto; }
-        .header-panel {
-            background: var(--surface); padding: 20px; border-radius: 8px;
-            margin-bottom: 20px; border: 1px solid var(--border);
-            display: flex; gap: 20px; flex-wrap: wrap; align-items: flex-end;
-            position: sticky; top: 0; z-index: 100; box-shadow: 0 4px 6px rgba(0,0,0,0.3);
+        .top-panel {
+            background: var(--surface); padding: 15px 20px; border-bottom: 1px solid var(--border);
+            display: flex; gap: 20px; align-items: flex-end; flex-wrap: wrap; z-index: 100;
         }
-        .file-input { display: flex; flex-direction: column; gap: 8px; flex: 1; }
-        .file-input input {
-            background: var(--bg); color: var(--text);
-            border: 1px solid var(--border); padding: 8px; border-radius: 4px;
+        .sync-panel {
+            background: #111827; padding: 15px 20px; border-bottom: 1px solid var(--border);
+            display: flex; justify-content: space-between; align-items: center; z-index: 99;
         }
+        .sync-info { display: flex; gap: 30px; font-size: 0.95em; }
+        .sync-info div { display: flex; flex-direction: column; gap: 4px; }
+        .sync-info span { font-weight: bold; font-family: monospace; font-size: 1.1em; }
+        
+        .file-input { display: flex; flex-direction: column; gap: 5px; }
+        .file-input input { background: var(--bg); color: var(--text); border: 1px solid var(--border); padding: 5px; border-radius: 4px; }
+        
         button {
             background: var(--primary); color: white; border: none;
-            padding: 10px 20px; border-radius: 4px; cursor: pointer;
-            font-weight: bold; transition: background 0.2s;
+            padding: 8px 16px; border-radius: 4px; cursor: pointer; font-weight: bold;
         }
-        button:hover { background: var(--primary-hover); }
-        button:disabled { background: #555; cursor: not-allowed; }
+        button:hover:not(:disabled) { background: var(--primary-hover); }
+        button:disabled { background: #444; color: #888; cursor: not-allowed; }
         #exportBtn { background: var(--success); }
-        #exportBtn:hover { background: #059669; }
-        
-        .grid-header, .grid-row {
-            display: grid; grid-template-columns: 80px 150px 1fr 1fr 100px; gap: 10px;
-            padding: 12px; border-bottom: 1px solid var(--border);
-            align-items: center;
+        #exportBtn:hover:not(:disabled) { background: #059669; }
+        #applyBtn { background: #f59e0b; color: black; padding: 10px 20px; font-size: 1.1em; }
+        #applyBtn:hover:not(:disabled) { background: #d97706; }
+
+        .editor-container {
+            display: flex; flex: 1; overflow: hidden;
         }
-        .grid-header { font-weight: bold; background: var(--surface); border-radius: 8px 8px 0 0; }
-        .grid-row:hover { background: #1a1a1a; }
-        
-        .eng-text { color: #9ca3af; font-size: 0.95em; }
-        textarea {
-            width: 100%; background: var(--bg); color: var(--text);
-            border: 1px solid var(--border); padding: 8px; border-radius: 4px;
-            resize: vertical; min-height: 40px; font-family: inherit;
+        .col {
+            flex: 1; display: flex; flex-direction: column; border-right: 1px solid var(--border);
         }
-        textarea:focus { outline: 1px solid var(--primary); }
-        
-        .controls { display: flex; gap: 5px; }
-        .icon-btn {
-            background: var(--surface); border: 1px solid var(--border);
-            padding: 6px 10px; border-radius: 4px; cursor: pointer; font-size: 16px;
+        .col-header {
+            padding: 10px; background: var(--surface); font-weight: bold; text-align: center;
+            border-bottom: 1px solid var(--border);
         }
-        .icon-btn:hover { background: #333; }
+        .scroll-area { flex: 1; overflow-y: auto; padding: 10px; }
         
-        #editor { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; margin-bottom: 50px; }
+        .sub-card {
+            background: var(--surface); border: 1px solid var(--border); border-radius: 6px;
+            padding: 10px; margin-bottom: 10px; cursor: pointer; transition: background 0.1s;
+        }
+        .sub-card:hover { background: var(--highlight); }
+        .sub-card.ref-selected { background: var(--selected-ref); border-color: #10b981; }
+        .sub-card.tgt-selected { background: var(--selected-tgt); border-color: #ef4444; }
+        
+        .sub-header { display: flex; justify-content: space-between; color: #aaa; font-size: 0.85em; margin-bottom: 5px; font-family: monospace; }
+        .sub-text { line-height: 1.4; white-space: pre-wrap; font-size: 0.95em; }
     </style>
 </head>
 <body>
 
-<div class="container">
-    <div class="header-panel">
-        <div class="file-input">
-            <label>1. Reference SRT (English - Synced)</label>
-            <input type="file" id="refFile" accept=".srt">
-        </div>
-        <div class="file-input">
-            <label>2. Target SRT (Malayalam - To be synced)</label>
-            <input type="file" id="targetFile" accept=".srt">
-        </div>
-        <button id="loadBtn">Load & Compare</button>
-        <button id="exportBtn" disabled>Export Synced SRT</button>
+<div class="top-panel">
+    <div class="file-input">
+        <label>1. Reference (English - Correctly Synced)</label>
+        <input type="file" id="refFile" accept=".srt">
     </div>
+    <div class="file-input">
+        <label>2. Target (Malayalam - Needs Syncing)</label>
+        <input type="file" id="targetFile" accept=".srt">
+    </div>
+    <button id="loadBtn">Load Files</button>
+    <button id="exportBtn" disabled>Export Malayalam SRT</button>
+</div>
 
-    <div id="editor" style="display: none;">
-        <div class="grid-header">
-            <div>Index</div>
-            <div>Timestamp</div>
-            <div>Reference (Eng)</div>
-            <div>Target (Mal)</div>
-            <div>Shift Rest</div>
+<div class="sync-panel">
+    <div class="sync-info">
+        <div>
+            <label>Target Time (English)</label>
+            <span id="lblTargetTime">--:--:--,---</span>
         </div>
-        <div id="rowsContainer"></div>
+        <div>
+            <label>Current Time (Malayalam)</label>
+            <span id="lblCurrentTime">--:--:--,---</span>
+        </div>
+        <div>
+            <label>Calculated Offset</label>
+            <span id="lblOffset">0 ms</span>
+        </div>
+    </div>
+    <button id="applyBtn" disabled>Apply Offset to Selected & Below ⬇️</button>
+</div>
+
+<div class="editor-container">
+    <div class="col">
+        <div class="col-header">English Reference (Click to set Target Time)</div>
+        <div class="scroll-area" id="refList"></div>
+    </div>
+    <div class="col">
+        <div class="col-header">Malayalam Target (Click to set Current Time)</div>
+        <div class="scroll-area" id="tgtList"></div>
     </div>
 </div>
 
 <script>
     let refSubs = [];
-    let targetSubs = []; // Array of just the text dialogues
+    let tgtSubs = [];
+    let selRefIdx = -1;
+    let selTgtIdx = -1;
 
-    // Very basic SRT parser
+    // --- TIME HELPERS ---
+    function parseTime(timeStr) {
+        if (!timeStr) return 0;
+        let clean = timeStr.split('-->')[0].trim().replace('.', ',');
+        let [hms, ms] = clean.split(',');
+        let [h, m, s] = hms.split(':');
+        return (+h * 3600000) + (+m * 60000) + (+s * 1000) + (+ms);
+    }
+
+    function formatTime(totalMs) {
+        if (totalMs < 0) totalMs = 0;
+        let h = Math.floor(totalMs / 3600000);
+        let rem = totalMs % 3600000;
+        let m = Math.floor(rem / 60000);
+        rem = rem % 60000;
+        let s = Math.floor(rem / 1000);
+        let ms = rem % 1000;
+        return `${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')},${String(ms).padStart(3,'0')}`;
+    }
+
+    // --- SRT PARSER ---
     function parseSRT(data) {
-        // Normalize line endings and split by double blank lines
         const blocks = data.replace(/\r\n/g, '\n').trim().split(/\n\s*\n/);
         return blocks.map(block => {
             const lines = block.split('\n');
+            if (lines.length < 3) return null;
             const index = lines[0];
-            const time = lines[1];
+            const timeStr = lines[1];
             const text = lines.slice(2).join('\n');
-            return { index, time, text };
-        }).filter(b => b.time && b.time.includes('-->')); // Drop invalid blocks
+            
+            if (!timeStr.includes('-->')) return null;
+            const [startStr, endStr] = timeStr.split('-->').map(s => s.trim());
+            
+            return { 
+                index, 
+                startMs: parseTime(startStr), 
+                endMs: parseTime(endStr), 
+                startStr, 
+                endStr, 
+                text 
+            };
+        }).filter(b => b !== null);
     }
 
+    // --- UI LOGIC ---
     document.getElementById('loadBtn').addEventListener('click', async () => {
         const refFile = document.getElementById('refFile').files[0];
         const targetFile = document.getElementById('targetFile').files[0];
 
-        if (!refFile || !targetFile) {
-            alert("Please select both SRT files first.");
-            return;
-        }
+        if (!refFile || !targetFile) return alert("Select both files.");
 
-        const refText = await refFile.text();
-        const targetText = await targetFile.text();
+        refSubs = parseSRT(await refFile.text());
+        tgtSubs = parseSRT(await targetFile.text());
 
-        refSubs = parseSRT(refText);
-        // Extract just the text from the target file to make shifting it as an array easier
-        targetSubs = parseSRT(targetText).map(sub => sub.text);
-
-        renderTable();
-        document.getElementById('editor').style.display = 'block';
+        selRefIdx = -1; selTgtIdx = -1;
+        updateSyncPanel();
+        renderList('refList', refSubs, 'ref');
+        renderList('tgtList', tgtSubs, 'tgt');
         document.getElementById('exportBtn').disabled = false;
     });
 
-    function shiftDown(index) {
-        // Insert a blank string at this index, pushing everything else down
-        targetSubs.splice(index, 0, "");
-        renderTable();
-    }
-
-    function shiftUp(index) {
-        if (index === 0) return; // Can't pull up the first row
-        // Delete the cell above it, pulling this one and everything below it up
-        targetSubs.splice(index - 1, 1);
-        renderTable();
-    }
-
-    function updateTargetText(index, value) {
-        targetSubs[index] = value;
-    }
-
-    function renderTable() {
-        const container = document.getElementById('rowsContainer');
+    function renderList(containerId, data, type) {
+        const container = document.getElementById(containerId);
         container.innerHTML = '';
         
-        // Render until the end of whichever array is longer
-        const maxRows = Math.max(refSubs.length, targetSubs.length);
-
-        for (let i = 0; i < maxRows; i++) {
-            const ref = refSubs[i] || { index: '-', time: '---', text: '' };
-            const tgtText = targetSubs[i] || '';
-
-            const row = document.createElement('div');
-            row.className = 'grid-row';
+        data.forEach((sub, i) => {
+            const card = document.createElement('div');
+            card.className = `sub-card ${type === 'ref' && i === selRefIdx ? 'ref-selected' : ''} ${type === 'tgt' && i === selTgtIdx ? 'tgt-selected' : ''}`;
+            card.id = `${type}-card-${i}`;
             
-            row.innerHTML = `
-                <div>${i + 1}</div>
-                <div style="font-size: 0.85em; color: #aaa;">${ref.time}</div>
-                <div class="eng-text">${ref.text.replace(/\n/g, '<br>')}</div>
-                <div>
-                    <textarea oninput="updateTargetText(${i}, this.value)">${tgtText}</textarea>
+            card.innerHTML = `
+                <div class="sub-header">
+                    <span>#${sub.index}</span>
+                    <span>${sub.startStr} --> ${sub.endStr}</span>
                 </div>
-                <div class="controls">
-                    <button class="icon-btn" title="Pull Up (Deletes row above)" onclick="shiftUp(${i})">⬆️</button>
-                    <button class="icon-btn" title="Push Down (Inserts blank here)" onclick="shiftDown(${i})">⬇️</button>
-                </div>
+                <div class="sub-text">${sub.text}</div>
             `;
-            container.appendChild(row);
-        }
+            
+            card.onclick = () => selectRow(type, i);
+            container.appendChild(card);
+        });
     }
 
-    document.getElementById('exportBtn').addEventListener('click', () => {
-        let outputSRT = '';
-        let newIndex = 1;
+    function selectRow(type, idx) {
+        if (type === 'ref') {
+            if (selRefIdx > -1) document.getElementById(`ref-card-${selRefIdx}`).classList.remove('ref-selected');
+            selRefIdx = idx;
+            document.getElementById(`ref-card-${selRefIdx}`).classList.add('ref-selected');
+        } else {
+            if (selTgtIdx > -1) document.getElementById(`tgt-card-${selTgtIdx}`).classList.remove('tgt-selected');
+            selTgtIdx = idx;
+            document.getElementById(`tgt-card-${selTgtIdx}`).classList.add('tgt-selected');
+        }
+        updateSyncPanel();
+    }
 
-        const maxRows = Math.max(refSubs.length, targetSubs.length);
+    function updateSyncPanel() {
+        const lblRef = document.getElementById('lblTargetTime');
+        const lblTgt = document.getElementById('lblCurrentTime');
+        const lblOffset = document.getElementById('lblOffset');
+        const applyBtn = document.getElementById('applyBtn');
 
-        for (let i = 0; i < maxRows; i++) {
-            const ref = refSubs[i];
-            const mal = targetSubs[i] ? targetSubs[i].trim() : '';
+        let refTime = '--:--:--,---';
+        let tgtTime = '--:--:--,---';
+        let offsetMs = 0;
 
-            // Same logic as your Python script: dropna(subset=['English Time Stamp', 'Malayalam Dialogue'])
-            // Only export if we have a valid reference timestamp AND non-empty Malayalam text
-            if (ref && ref.time !== '---' && mal) {
-                outputSRT += `${newIndex}\n${ref.time}\n${mal}\n\n`;
-                newIndex++;
-            }
+        if (selRefIdx > -1) refTime = refSubs[selRefIdx].startStr;
+        if (selTgtIdx > -1) tgtTime = tgtSubs[selTgtIdx].startStr;
+
+        if (selRefIdx > -1 && selTgtIdx > -1) {
+            offsetMs = refSubs[selRefIdx].startMs - tgtSubs[selTgtIdx].startMs;
+            const sign = offsetMs > 0 ? '+' : '';
+            lblOffset.innerText = `${sign}${offsetMs} ms`;
+            applyBtn.disabled = false;
+        } else {
+            lblOffset.innerText = '0 ms';
+            applyBtn.disabled = true;
         }
 
-        // Create a downloadable Blob
-        const blob = new Blob([outputSRT], { type: 'text/plain' });
+        lblRef.innerText = refTime;
+        lblTgt.innerText = tgtTime;
+    }
+
+    // --- APPLY OFFSET ---
+    document.getElementById('applyBtn').addEventListener('click', () => {
+        if (selRefIdx === -1 || selTgtIdx === -1) return;
+
+        const offsetMs = refSubs[selRefIdx].startMs - tgtSubs[selTgtIdx].startMs;
+
+        // Apply offset to selected Malayalam subtitle and EVERY subtitle after it
+        for (let i = selTgtIdx; i < tgtSubs.length; i++) {
+            tgtSubs[i].startMs += offsetMs;
+            tgtSubs[i].endMs += offsetMs;
+            tgtSubs[i].startStr = formatTime(tgtSubs[i].startMs);
+            tgtSubs[i].endStr = formatTime(tgtSubs[i].endMs);
+        }
+
+        // Re-render the target list to show new times
+        renderList('tgtList', tgtSubs, 'tgt');
+        
+        // Reset selections to prevent accidental double-clicks
+        selRefIdx = -1; selTgtIdx = -1;
+        updateSyncPanel();
+    });
+
+    // --- EXPORT ---
+    document.getElementById('exportBtn').addEventListener('click', () => {
+        let output = '';
+        tgtSubs.forEach((sub, i) => {
+            output += `${i + 1}\n${sub.startStr} --> ${sub.endStr}\n${sub.text}\n\n`;
+        });
+
+        const blob = new Blob([output], { type: 'text/plain' });
         const url = URL.createObjectURL(blob);
         const a = document.createElement('a');
         a.href = url;
